@@ -1,0 +1,142 @@
+{
+  "name": "@saihm/shm",
+  "version": "0.38.0",
+  "description": "Super-Human Memory — portable, local-first ranked recall as a read-only add-on to SAIHM.",
+  "type": "module",
+  "license": "BUSL-1.1",
+  "author": "SAIHM Project",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SAIHM-Admin/saihm-shm.git"
+  },
+  "homepage": "https://github.com/SAIHM-Admin/saihm-shm#readme",
+  "bugs": {
+    "url": "https://github.com/SAIHM-Admin/saihm-shm/issues"
+  },
+  "engines": {
+    "node": ">=20.20.0"
+  },
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./session": {
+      "types": "./dist/session/index.d.ts",
+      "default": "./dist/session/index.js"
+    },
+    "./profile": {
+      "types": "./dist/profile/index.d.ts",
+      "default": "./dist/profile/index.js"
+    },
+    "./adapter": {
+      "types": "./dist/adapter/index.d.ts",
+      "default": "./dist/adapter/index.js"
+    },
+    "./embed": {
+      "types": "./dist/embed/index.d.ts",
+      "default": "./dist/embed/index.js"
+    },
+    "./store": {
+      "types": "./dist/store/index.d.ts",
+      "default": "./dist/store/index.js"
+    },
+    "./rerank": {
+      "types": "./dist/rerank/index.d.ts",
+      "default": "./dist/rerank/index.js"
+    },
+    "./assemble": {
+      "types": "./dist/assemble/index.d.ts",
+      "default": "./dist/assemble/index.js"
+    },
+    "./deref": {
+      "types": "./dist/deref/index.d.ts",
+      "default": "./dist/deref/index.js"
+    },
+    "./inject": {
+      "types": "./dist/inject/index.d.ts",
+      "default": "./dist/inject/index.js"
+    },
+    "./provenance": {
+      "types": "./dist/provenance/index.d.ts",
+      "default": "./dist/provenance/index.js"
+    },
+    "./answer": {
+      "types": "./dist/answer/index.d.ts",
+      "default": "./dist/answer/index.js"
+    },
+    "./saihm": {
+      "types": "./dist/saihm_client/index.d.ts",
+      "default": "./dist/saihm_client/index.js"
+    },
+    "./resume": {
+      "types": "./dist/resume/index.d.ts",
+      "default": "./dist/resume/index.js"
+    },
+    "./attention": {
+      "types": "./dist/attention/index.d.ts",
+      "default": "./dist/attention/index.js"
+    },
+    "./derived": {
+      "types": "./dist/derived/index.d.ts",
+      "default": "./dist/derived/index.js"
+    },
+    "./service": {
+      "types": "./dist/service/index.d.ts",
+      "default": "./dist/service/index.js"
+    },
+    "./host": {
+      "types": "./dist/host/index.d.ts",
+      "default": "./dist/host/index.js"
+    },
+    "./history": {
+      "types": "./dist/history/index.d.ts",
+      "default": "./dist/history/index.js"
+    },
+    "./fleet": {
+      "types": "./dist/fleet/index.d.ts",
+      "default": "./dist/fleet/index.js"
+    },
+    "./compliance": {
+      "types": "./dist/compliance/index.d.ts",
+      "default": "./dist/compliance/index.js"
+    },
+    "./tiers": {
+      "types": "./dist/tiers/index.d.ts",
+      "default": "./dist/tiers/index.js"
+    },
+    "./erasure": {
+      "types": "./dist/erasure/index.d.ts",
+      "default": "./dist/erasure/index.js"
+    },
+    "./inbound": {
+      "types": "./dist/inbound/index.d.ts",
+      "default": "./dist/inbound/index.js"
+    },
+    "./entitlement": {
+      "types": "./dist/entitlement/index.d.ts",
+      "default": "./dist/entitlement/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "prepack": "npm run build"
+  },
+  "dependencies": {
+    "@xenova/transformers": "^2.17.2"
+  },
+  "devDependencies": {
+    "tsx": "^4.21.0",
+    "typescript": "^5.6.0",
+    "@types/node": "^20.19.0"
+  }
+}

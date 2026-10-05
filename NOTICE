@@ -1,0 +1,12 @@
+SHM (Super-Human Memory)
+Copyright 2026 SAIHM Project
+
+Licensed under the Business Source License 1.1. See LICENSE.
+
+This package contains no third-party code. It depends on packages that npm
+installs separately, each under its own licence, among them
+@xenova/transformers (Apache License 2.0).
+
+At run time, the default embedder (Xenova/all-MiniLM-L6-v2) and the optional
+cross-encoder reranker (Xenova/ms-marco-MiniLM-L-6-v2) load pretrained models
+from the Hugging Face Hub. Each model is published under its own licence.

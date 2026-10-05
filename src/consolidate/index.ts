@@ -1,0 +1,38 @@
+export {
+  Consolidator,
+  DEFAULT_CONSOLIDATION,
+  type ConsolidationOp,
+  type ConsolidationConfig,
+  type ConsolidationDecision,
+  type RedundancyCluster,
+  type DensityStat,
+  type DensityBracket,
+} from "./consolidator.js";
+export {
+  BodyRedundancyIndex,
+  shingleSet,
+  jaccardOf,
+  containmentOf,
+  DEFAULT_SHINGLE_K,
+  DEFAULT_BODY_REDUNDANCY,
+  type BodyRedundancyConfig,
+  type BodyPair,
+  type BodyRedundancyStats,
+} from "./body_redundancy.js";
+export {
+  extractIndexTargets,
+  stripIndexTargets,
+  stripIndexLabels,
+  assessIndexBudget,
+  assessIndexBacking,
+  guardIndex,
+  DEFAULT_INDEX_GUARD,
+  type IndexLineInput,
+  type BackingVerdict,
+  type LineBacking,
+  type ProseBacking,
+  type BudgetLimits,
+  type BudgetAssessment,
+  type IndexGuardConfig,
+  type IndexGuardReport,
+} from "./index_guard.js";

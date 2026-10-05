@@ -1,0 +1,47 @@
+name: release
+
+# Publishes @saihm/shm to npm, with provenance, when a GitHub Release is published.
+# The first releases authenticate with the NPM_TOKEN repository secret; trusted publishing
+# replaces it once the package exists on npm.
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  id-token: write   # provenance
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Check the version against the release tag
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG="$(node -p "require('./package.json').version")"
+          LOCK="$(node -p "require('./package-lock.json').version")"
+          LOCKPKG="$(node -p "require('./package-lock.json').packages[''].version")"
+          echo "package.json=$PKG package-lock.json=$LOCK/$LOCKPKG release-tag=$TAG"
+          test "$PKG" = "$TAG" || { echo "::error::package.json version $PKG is not the tag $TAG"; exit 1; }
+          test "$LOCK" = "$TAG" || { echo "::error::package-lock.json version $LOCK is not the tag $TAG"; exit 1; }
+          test "$LOCKPKG" = "$TAG" || { echo "::error::package-lock.json packages[''].version $LOCKPKG is not the tag $TAG"; exit 1; }
+          test "$(node -p "require('./package.json').private === true")" = false || { echo "::error::package.json is private"; exit 1; }
+
+      - name: Install
+        run: npm ci --ignore-scripts
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Publish (the build runs as prepack)
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
