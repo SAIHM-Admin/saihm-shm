@@ -1,39 +1,91 @@
 name: release
 
-# Publishes @saihm/shm to npm, with provenance, when a GitHub Release is published.
-# The first releases authenticate with the NPM_TOKEN repository secret; trusted publishing
-# replaces it once the package exists on npm.
+# Publishes @saihm/shm to npm through OIDC trusted publishing: no npm token is
+# stored or used, and npm attaches provenance automatically.
+#
+# PREREQUISITE (one-time, on npmjs.com): @saihm/shm -> Settings -> Trusted
+# Publisher -> GitHub Actions:
+#   Organization or user : SAIHM-Admin
+#   Repository           : saihm-shm
+#   Workflow filename    : release.yml
+#
+# Runs when a GitHub Release is published. It can also be started by hand on
+# main (workflow_dispatch) with the tag of an existing release, to publish that
+# release when its own run could not. A manual run first proves that every file
+# outside .github/ and FILES.sha256 is identical to the tag.
 
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag of an existing release to publish from main, e.g. v0.38.2"
+        required: true
 
 permissions:
   contents: read
-  id-token: write   # provenance
+  id-token: write   # OIDC trusted publishing and provenance
 
 jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
 
+      # Deliberately no registry-url: setup-node's registry-url writes an .npmrc
+      # with a placeholder NODE_AUTH_TOKEN that shadows OIDC, so npm would never
+      # reach trusted publishing.
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: '24'
-          registry-url: 'https://registry.npmjs.org'
+
+      - name: Use npm >= 11.5.1 (required for trusted publishing)
+        run: npm install -g npm@latest
+
+      - name: Resolve the release tag
+        id: tag
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            test "$GITHUB_REF" = "refs/heads/main" || { echo "::error::start this workflow by hand only on main"; exit 1; }
+            TAG="$INPUT_TAG"
+          else
+            TAG="$GITHUB_REF_NAME"
+          fi
+          echo "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' || { echo "::error::not a release tag: $TAG"; exit 1; }
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: On a manual run, prove main equals the tag outside .github/ and FILES.sha256
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          git rev-parse -q --verify "refs/tags/$TAG^{commit}" > /dev/null || { echo "::error::tag $TAG not found"; exit 1; }
+          git diff --quiet "$TAG" HEAD -- . ':(exclude).github' ':(exclude)FILES.sha256' || { echo "::error::main differs from $TAG outside .github/ and FILES.sha256"; git diff --stat "$TAG" HEAD; exit 1; }
+          diff <(git show "$TAG:FILES.sha256" | grep -v '  \.github/') <(grep -v '  \.github/' FILES.sha256) || { echo "::error::FILES.sha256 differs from $TAG outside .github/"; exit 1; }
+          echo "main equals $TAG outside .github/ and FILES.sha256"
 
       - name: Check the version against the release tag
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
         run: |
-          TAG="${GITHUB_REF_NAME#v}"
+          V="${TAG#v}"
           PKG="$(node -p "require('./package.json').version")"
           LOCK="$(node -p "require('./package-lock.json').version")"
           LOCKPKG="$(node -p "require('./package-lock.json').packages[''].version")"
-          echo "package.json=$PKG package-lock.json=$LOCK/$LOCKPKG release-tag=$TAG"
-          test "$PKG" = "$TAG" || { echo "::error::package.json version $PKG is not the tag $TAG"; exit 1; }
-          test "$LOCK" = "$TAG" || { echo "::error::package-lock.json version $LOCK is not the tag $TAG"; exit 1; }
-          test "$LOCKPKG" = "$TAG" || { echo "::error::package-lock.json packages[''].version $LOCKPKG is not the tag $TAG"; exit 1; }
+          echo "package.json=$PKG package-lock.json=$LOCK/$LOCKPKG release-tag=$V"
+          test "$PKG" = "$V" || { echo "::error::package.json version $PKG is not the tag $V"; exit 1; }
+          test "$LOCK" = "$V" || { echo "::error::package-lock.json version $LOCK is not the tag $V"; exit 1; }
+          test "$LOCKPKG" = "$V" || { echo "::error::package-lock.json packages[''].version $LOCKPKG is not the tag $V"; exit 1; }
           test "$(node -p "require('./package.json').private === true")" = false || { echo "::error::package.json is private"; exit 1; }
+
+      - name: Check FILES.sha256 against the tree
+        run: sha256sum --check --quiet --strict FILES.sha256
 
       - name: Install
         run: npm ci --ignore-scripts
@@ -43,5 +95,3 @@ jobs:
 
       - name: Publish (the build runs as prepack)
         run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
