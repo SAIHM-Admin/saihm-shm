@@ -97,20 +97,23 @@ function listingRecord(result: unknown): Record<string, unknown> {
 function rowsOf(r: Record<string, unknown>): readonly SharedRef[] {
   const rows = r["shared"];
   if (!Array.isArray(rows)) throw new ListingError("not a share listing: `shared` is not an array");
-  return rows.map((row: unknown, i) => {
+  const out: SharedRef[] = [];
+  for (let i = 0; i < rows.length; i++) {
+    const row: unknown = rows[i];
     const o = typeof row === "object" && row !== null ? (row as Record<string, unknown>) : undefined;
     const sharer = o?.["sharer"];
     const cellId = o?.["cellId"];
-    if (o === undefined || typeof sharer !== "string" || typeof cellId !== "string") {
-      throw new ListingError(`share listing row ${i} has no string sharer and cellId`);
+    if (o === undefined || typeof sharer !== "string" || typeof cellId !== "string" || sharer === "" || cellId === "") {
+      throw new ListingError(`share listing row ${i} has no non-empty string sharer and cellId`);
     }
-    return {
+    out.push({
       sharer,
       cellId,
       ...(typeof o["scope"] === "string" ? { scope: o["scope"] } : {}),
       ...(typeof o["verified"] === "boolean" ? { verified: o["verified"] } : {}),
-    };
-  });
+    });
+  }
+  return out;
 }
 
 export function triageInbound(refs: readonly SharedRef[], opts: InboundOptions = {}): InboundTriage {

@@ -1,14 +1,19 @@
 import type { Embedder, EmbedResult } from "./types.js";
+import { loadTransformers, ortRuntime } from "./transformers_runtime.js";
+
+const MINILM_REPO = "Xenova/all-MiniLM-L6-v2";
 
 export class LocalMiniLmEmbedder implements Embedder {
-  readonly modelId = "Xenova/all-MiniLM-L6-v2";
+  get modelId(): string {
+    return ortRuntime() === "wasm" ? "Xenova/all-MiniLM-L6-v2@hft4-q8-wasm" : "Xenova/all-MiniLM-L6-v2@hft4-q8";
+  }
   readonly dim = 384;
   private extractor: ((texts: string[], opts: unknown) => Promise<unknown>) | null = null;
 
   private async pipe(): Promise<(texts: string[], opts: unknown) => Promise<unknown>> {
     if (this.extractor) return this.extractor;
-    const { pipeline } = await import("@xenova/transformers");
-    const extractor = await pipeline("feature-extraction", this.modelId);
+    const { lib, modelOptions } = await loadTransformers();
+    const extractor = await lib.pipeline("feature-extraction", MINILM_REPO, { dtype: "q8", ...modelOptions });
     this.extractor = extractor as unknown as (texts: string[], opts: unknown) => Promise<unknown>;
     return this.extractor;
   }

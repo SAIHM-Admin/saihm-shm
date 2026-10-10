@@ -63,6 +63,10 @@ You need Node.js 20.20 or later, a paid SAIHM subscription, and
 0.13.0 or later. The [developer guide](#developer-guide) below takes you from install to
 your first ranked answer.
 
+On Linux x64, the install also downloads a GPU library of about 270 MB that SHM does not
+use. To skip it, for example on a network that blocks the download, install with
+`ONNXRUNTIME_NODE_INSTALL=skip npm install @saihm/shm`.
+
 ## Support SHM
 
 If SHM is useful to you, here is how to help it reach more people:

@@ -1,4 +1,5 @@
 import type { Reranker, RerankCandidate } from "./types.js";
+import { loadTransformers } from "../embed/transformers_runtime.js";
 
 type Tokenizer = (text: string[], opts: unknown) => unknown;
 type SeqModel = (inputs: unknown) => Promise<{ logits: { tolist(): number[][] } }>;
@@ -22,9 +23,9 @@ export class CrossEncoderReranker implements Reranker {
 
   private async load(): Promise<{ tokenizer: Tokenizer; model: SeqModel }> {
     if (this.tok && this.model) return { tokenizer: this.tok, model: this.model };
-    const { AutoTokenizer, AutoModelForSequenceClassification } = await import("@xenova/transformers");
-    const tokenizer = await AutoTokenizer.from_pretrained(this.modelId);
-    const model = await AutoModelForSequenceClassification.from_pretrained(this.modelId);
+    const { lib, modelOptions } = await loadTransformers();
+    const tokenizer = await lib.AutoTokenizer.from_pretrained(this.modelId);
+    const model = await lib.AutoModelForSequenceClassification.from_pretrained(this.modelId, { dtype: "q8", ...modelOptions });
     this.tok = tokenizer as unknown as Tokenizer;
     this.model = model as unknown as SeqModel;
     return { tokenizer: this.tok, model: this.model };

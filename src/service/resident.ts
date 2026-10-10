@@ -1,4 +1,5 @@
 import type { MemorySession } from "../session/memory_session.js";
+import { SessionClosedError } from "../retrieval/session_closed.js";
 import type { WarmBuildStats } from "../store/warm_index.js";
 
 export interface ResidentConfig {
@@ -35,6 +36,8 @@ export class ResidentSession {
   private readonly leases = new Map<MemorySession, number>();
   private readonly draining = new Map<MemorySession, () => void>();
   private readonly retirements = new Set<Promise<void>>();
+  private closing: Promise<void> | undefined;
+  private closed = false;
   private readonly clock: () => number;
   private readonly startedAtMs: number;
 
@@ -44,12 +47,14 @@ export class ResidentSession {
   }
 
   async start(): Promise<void> {
+    if (this.closing !== undefined) throw new SessionClosedError("ResidentSession.start");
     if (this.live !== undefined) return;
     await this.rebuild();
     if (this.live === undefined) throw new Error(`ResidentSession.start: first open failed — ${this.lastError ?? "unknown error"}`);
   }
 
   current(): MemorySession {
+    if (this.closed) throw new SessionClosedError("ResidentSession");
     if (this.live === undefined) throw new Error("ResidentSession: not started");
     return this.live;
   }
@@ -57,7 +62,7 @@ export class ResidentSession {
   async ensureFresh(): Promise<MemorySession> {
     const live = this.current();
     const f = this.cfg.freshness;
-    if (f === undefined) return live;
+    if (f === undefined || this.closing !== undefined) return live;
     let token: string | number;
     try {
       token = f();
@@ -72,7 +77,9 @@ export class ResidentSession {
   }
 
   async use<T>(fn: (session: MemorySession) => Promise<T>): Promise<T> {
+    if (this.closing !== undefined) throw new SessionClosedError("ResidentSession.use");
     await this.ensureFresh();
+    if (this.closing !== undefined) throw new SessionClosedError("ResidentSession.use");
     const session = this.current();
     this.leases.set(session, (this.leases.get(session) ?? 0) + 1);
     try {
@@ -93,6 +100,7 @@ export class ResidentSession {
   }
 
   async refresh(): Promise<MemorySession> {
+    if (this.closing !== undefined) throw new SessionClosedError("ResidentSession.refresh");
     await this.rebuild();
     return this.current();
   }
@@ -118,20 +126,26 @@ export class ResidentSession {
     return this.retireErrors;
   }
 
-  async close(): Promise<void> {
-    if (this.inflight !== undefined) await this.inflight;
-    for (const [session, release] of [...this.draining]) {
-      this.draining.delete(session);
-      release();
-    }
-    await Promise.allSettled([...this.retirements]);
-    const s = this.live;
-    this.live = undefined;
-    if (s !== undefined) await s.close();
+  close(): Promise<void> {
+    if (this.closing !== undefined) return this.closing;
+    this.closing = (async () => {
+      if (this.inflight !== undefined) await this.inflight;
+      for (const [session, release] of [...this.draining]) {
+        this.draining.delete(session);
+        release();
+      }
+      await Promise.allSettled([...this.retirements]);
+      const s = this.live;
+      this.live = undefined;
+      this.closed = true;
+      if (s !== undefined) await s.close();
+    })();
+    return this.closing;
   }
 
   private rebuild(): Promise<void> {
     if (this.inflight !== undefined) return this.inflight;
+    if (this.closing !== undefined) return Promise.resolve();
     this.inflight = (async () => {
       let token: string | number | undefined;
       try {

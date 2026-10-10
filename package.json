@@ -1,6 +1,6 @@
 {
   "name": "@saihm/shm",
-  "version": "0.38.1",
+  "version": "0.38.2",
   "description": "Super-Human Memory for AI agents: the right memories at the right moment, ranked and encrypted on your machine. The layer that puts SAIHM memory to work.",
   "keywords": [
     "ai",
@@ -153,11 +153,11 @@
     "prepack": "npm run build"
   },
   "dependencies": {
-    "@xenova/transformers": "^2.17.2"
+    "@huggingface/transformers": "^4.3.1"
   },
   "devDependencies": {
+    "@types/node": "^20.19.0",
     "tsx": "^4.21.0",
-    "typescript": "^5.6.0",
-    "@types/node": "^20.19.0"
+    "typescript": "^5.6.0"
   }
 }
