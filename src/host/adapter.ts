@@ -11,6 +11,8 @@ import { parseHostEvent, type HostEventName } from "./event.js";
 import { hostReply, type HostHookReply } from "./reply.js";
 
 export const DEFAULT_HOST_TURN_ITEMS = 2;
+export const DEFAULT_HOST_MAX_BYTES = 4096;
+export const MIN_HOST_HEAD_BYTES = 256;
 export const DEFAULT_HOST_ACTION_ITEMS = 2;
 export const DEFAULT_HOST_OVERFETCH = 15;
 export const DEFAULT_HOST_WINDOWS = 4;
@@ -22,8 +24,8 @@ export type HostChannel = "turn" | "action";
 export interface HostHookAdapterOptions {
   readonly admitSession: SessionAdmission;
   readonly assemble: (cue: string, budget: InjectionBudget, scope: Scope | undefined) => Promise<InjectionResult>;
-  readonly turn?: { readonly maxItems?: number; readonly scope?: Scope; readonly enabled?: boolean };
-  readonly action?: { readonly maxItems?: number; readonly scope?: Scope; readonly enabled?: boolean; readonly cue?: ActionCueOptions };
+  readonly turn?: { readonly maxItems?: number; readonly maxBytes?: number; readonly scope?: Scope; readonly enabled?: boolean };
+  readonly action?: { readonly maxItems?: number; readonly maxBytes?: number; readonly scope?: Scope; readonly enabled?: boolean; readonly cue?: ActionCueOptions };
   readonly overfetch?: number;
   readonly windows?: number;
   readonly compactCountOf?: CompactCountOf;
@@ -43,7 +45,7 @@ export interface HostTurnRecord {
   readonly channel: HostChannel;
   readonly eventName: HostEventName;
   readonly outcome: HostTurnOutcome;
-  readonly reason?: "no-session-binding" | "foreign-session" | "empty-cue" | "disabled" | "no-scope" | "none-cleared" | "all-shown" | "fence-empty" | "fault";
+  readonly reason?: "no-session-binding" | "foreign-session" | "empty-cue" | "disabled" | "no-scope" | "none-cleared" | "all-shown" | "fence-empty" | "over-budget" | "fault";
   readonly cue: string;
   readonly scope?: string;
   readonly cleared: number;
@@ -57,11 +59,27 @@ export interface HostTurnRecord {
   readonly windowKnown: boolean;
   readonly shownIds: readonly string[];
   readonly neutralized: boolean;
+  readonly injectedBytes: number;
+  readonly shownBytes: readonly number[];
+  readonly cut: number;
+  readonly deferred: number;
+  readonly maxBytes: number | null;
   readonly elapsedMs: number;
 }
 
 const posIntElse = (v: number | undefined, dflt: number): number =>
   Number.isInteger(v) && (v as number) > 0 ? (v as number) : dflt;
+
+const byteCap = (v: number | undefined): number | null =>
+  v === Number.POSITIVE_INFINITY ? null : posIntElse(v, DEFAULT_HOST_MAX_BYTES);
+
+function utf8Head(text: string, n: number): string {
+  const buf = Buffer.from(text, "utf8");
+  if (buf.length <= n) return text;
+  let end = Math.max(0, n);
+  while (end > 0 && (buf[end]! & 0xc0) === 0x80) end -= 1;
+  return buf.subarray(0, end).toString("utf8");
+}
 
 export class HostHookAdapter {
   private readonly windows = new Map<string, InjectionHistory>();
@@ -91,6 +109,7 @@ export class HostHookAdapter {
       cue: "",
       cleared: 0, ranked: [] as readonly HostRankedMemory[], novel: 0, shown: 0, suppressed: 0, unrenderable: 0, belowFloor: 0,
       windowKnown: false, shownIds: [] as readonly string[], neutralized: false,
+      injectedBytes: 0, shownBytes: [] as readonly number[], cut: 0, deferred: 0, maxBytes: null as number | null,
     };
     const observe = (r: Omit<HostTurnRecord, "elapsedMs">): void => {
       try { this.opts.onTurn?.({ ...r, elapsedMs: Math.round(performance.now() - t0) }); } catch { }
@@ -139,28 +158,74 @@ export class HostHookAdapter {
       if (taken.length === 0) { observe({ ...funnel, outcome: "silent", reason: "all-shown" }); return undefined; }
 
       const byId = new Map(renderable.map((m) => [m.cellId, m]));
-      const bodies: RecalledBody[] = taken.flatMap((c) => {
-        const m = byId.get(c.cellId);
-        return m === undefined ? [] : [{ cellId: m.cellId, plaintext: m.text, epoch: m.epoch, tier: m.tier, partial: m.partial }];
-      });
-      const ctx = buildInjectionContext(bodies);
-      if (ctx.prompt === "") { observe({ ...funnel, outcome: "silent", reason: "fence-empty" }); return undefined; }
+      const maxBytes = byteCap(cfg?.maxBytes);
+      const render = (list: readonly InjectionCandidate[], head: number | undefined) => {
+        let cut = 0;
+        const bodies: RecalledBody[] = list.flatMap((c) => {
+          const m = byId.get(c.cellId);
+          if (m === undefined) return [];
+          const whole = Buffer.byteLength(m.text, "utf8");
+          let text = m.text;
+          if (head !== undefined && whole > head) {
+            cut += 1;
+            text = `${utf8Head(m.text, head)}\n[… cut by SHM to fit this turn: ${whole} bytes in all; recall cell ${m.cellId} for the whole memory]`;
+          }
+          return [{ cellId: m.cellId, plaintext: text, epoch: m.epoch, tier: m.tier, partial: m.partial || text !== m.text }];
+        });
+        const ctx = buildInjectionContext(bodies);
+        const audit =
+          (channel === "action"
+            ? `⇱ SHM standing guidance before this action: ${list.length}${scope !== undefined ? ` [${scope.name}]` : ""}`
+            : `⇱ SHM surfaced ${list.length} unasked`) +
+          ` (${renderable.length} cleared the relevance floor ${raw.relevanceFloor ?? "off"},` +
+          ` ${decision.suppressed.length} already in context${windowId === undefined ? ", window UNKNOWN" : ""})` +
+          `${cut > 0 ? ` ✂ ${cut} cut to fit ${maxBytes} bytes` : ""}` +
+          `${ctx.neutralized ? " ⚠ a body tried to forge a delimiter" : ""}` +
+          `${raw.injected.length > renderable.length ? ` ⚠ ${raw.injected.length - renderable.length} dropped for an unrenderable id` : ""}`;
+        const additionalContext = ctx.prompt === "" ? "" : `${audit}\n${ctx.prompt}`;
+        return { ctx, additionalContext, bytes: Buffer.byteLength(additionalContext, "utf8"), cut, texts: bodies.map((b) => b.plaintext) };
+      };
+
+      let shown = taken;
+      let r = render(shown, undefined);
+      if (maxBytes !== null) {
+        let tries = 0;
+        while (r.bytes > maxBytes) {
+          const fixed = render(shown, 0).bytes;
+          let head = Math.floor((maxBytes - fixed) / shown.length);
+          if (head < MIN_HOST_HEAD_BYTES) {
+            if (shown.length > 1) { shown = shown.slice(0, -1); r = render(shown, undefined); continue; }
+            observe({ ...funnel, outcome: "silent", reason: "over-budget", deferred: taken.length, maxBytes });
+            return undefined;
+          }
+          r = render(shown, head);
+          while (r.bytes > maxBytes && tries < 3) {
+            tries += 1;
+            head -= Math.ceil((r.bytes - maxBytes) / shown.length);
+            if (head < MIN_HOST_HEAD_BYTES) break;
+            r = render(shown, head);
+          }
+          if (r.bytes > maxBytes) {
+            if (shown.length > 1) { shown = shown.slice(0, -1); r = render(shown, undefined); tries = 0; continue; }
+            observe({ ...funnel, outcome: "silent", reason: "over-budget", deferred: taken.length, maxBytes });
+            return undefined;
+          }
+        }
+      }
+      if (r.ctx.prompt === "") { observe({ ...funnel, outcome: "silent", reason: "fence-empty" }); return undefined; }
 
       if (windowId !== undefined) {
-        const recorded = selectNovel(taken, history);
+        const recorded = selectNovel(shown, history);
         if (recorded.next !== undefined) this.remember(windowId, recorded.next);
       }
-      const shownIds = taken.map((c) => c.cellId);
-      const audit =
-        (channel === "action"
-          ? `⇱ SHM standing guidance before this action: ${taken.length}${scope !== undefined ? ` [${scope.name}]` : ""}`
-          : `⇱ SHM surfaced ${taken.length} unasked`) +
-        ` (${renderable.length} cleared the relevance floor ${raw.relevanceFloor ?? "off"},` +
-        ` ${decision.suppressed.length} already in context${windowId === undefined ? ", window UNKNOWN" : ""})` +
-        `${ctx.neutralized ? " ⚠ a body tried to forge a delimiter" : ""}` +
-        `${raw.injected.length > renderable.length ? ` ⚠ ${raw.injected.length - renderable.length} dropped for an unrenderable id` : ""}`;
-      observe({ ...funnel, outcome: "fired", shown: taken.length, shownIds, neutralized: ctx.neutralized });
-      return hostReply(event.eventName, `${audit}\n${ctx.prompt}`);
+      const shownIds = shown.map((c) => c.cellId);
+      observe({
+        ...funnel, outcome: "fired", shown: shown.length, shownIds, neutralized: r.ctx.neutralized,
+        injectedBytes: r.bytes,
+        shownBytes: r.texts.map((x) => Buffer.byteLength(x, "utf8")),
+        cut: r.cut, deferred: taken.length - shown.length, maxBytes,
+      });
+      return hostReply(event.eventName, r.additionalContext);
     } catch {
       observe({ ...base, outcome: "error", reason: "fault" });
       return undefined;

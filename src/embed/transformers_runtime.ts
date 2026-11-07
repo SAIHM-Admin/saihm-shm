@@ -1,6 +1,9 @@
+import { accessSync, constants, existsSync } from "node:fs";
 import { createRequire } from "node:module";
-import { dirname } from "node:path";
+import { homedir } from "node:os";
+import { dirname, isAbsolute, join, sep } from "node:path";
 import { pathToFileURL } from "node:url";
+import { ensureStateDir } from "../store/state_dir.js";
 
 export type OrtRuntime = "native" | "wasm";
 
@@ -40,9 +43,44 @@ function libRequire(): NodeJS.Require {
   return createRequire(createRequire(import.meta.url).resolve("@huggingface/transformers"));
 }
 
+export async function chooseModelCacheDir(
+  current: string | null | undefined,
+  xdgCacheHome: string | undefined,
+  home: string,
+  writable: (dir: string) => Promise<boolean>,
+): Promise<string | null | undefined> {
+  if (typeof current !== "string" || !current.split(/[\\/]/).includes("node_modules")) return current;
+  const base = xdgCacheHome && isAbsolute(xdgCacheHome) ? xdgCacheHome : home ? join(home, ".cache") : "";
+  if (!base) return current;
+  const dir = join(base, "shm", "models") + sep;
+  return (await writable(dir)) ? dir : current;
+}
+
+async function writableDir(dir: string): Promise<boolean> {
+  try {
+    let d = dir.replace(/[\\/]+$/, "");
+    while (!existsSync(d)) {
+      if (dirname(d) === d) return false;
+      d = dirname(d);
+    }
+    accessSync(d, constants.W_OK);
+    await ensureStateDir("the model cache", dir);
+    accessSync(dir, constants.W_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function placeModelCache(lib: typeof import("@huggingface/transformers")): Promise<void> {
+  lib.env.cacheDir = (await chooseModelCacheDir(lib.env.cacheDir, process.env.XDG_CACHE_HOME, homedir(), writableDir)) ?? null;
+}
+
 async function load(): Promise<LoadedTransformers> {
   if (ortRuntime() === "native") {
-    return { lib: await import("@huggingface/transformers"), runtime: "native", modelOptions: {} };
+    const lib = await import("@huggingface/transformers");
+    await placeModelCache(lib);
+    return { lib, runtime: "native", modelOptions: {} };
   }
   const requireFromLib = libRequire();
   const nativeError = decided?.nativeError;
@@ -66,8 +104,10 @@ async function load(): Promise<LoadedTransformers> {
       "using its WebAssembly build, which is slower and keeps its own index.",
     { code: "SHM_ORT_WASM" },
   );
+  const lib = await import("@huggingface/transformers");
+  await placeModelCache(lib);
   return {
-    lib: await import("@huggingface/transformers"),
+    lib,
     runtime: "wasm",
     modelOptions: { device: "auto", session_options: { executionProviders: ["wasm"] } },
   };

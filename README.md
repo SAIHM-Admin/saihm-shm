@@ -31,7 +31,7 @@ decision-maker's guide to SAIHM and SHM.
 
 ## What SHM gives you
 
-SAIHM keeps your agent's memory safe. SHM makes it work efficiently: it organises that
+SAIHM keeps your agent's memory safe. SHM makes it work efficiently: it organizes that
 memory and brings the right part of it forward, by meaning, before the agent asks.
 
 - **The right memories, not all of them.** SHM ranks what your agent remembers and
@@ -39,8 +39,10 @@ memory and brings the right part of it forward, by meaning, before the agent ask
   window stays clean and tasks stay apart.
 - **Ready before the question.** SHM puts the relevant memories in front of your agent
   as the work begins, and records why each one was chosen.
-- **Private by design.** SHM runs on your side, next to your agent. Everything it stores
-  is encrypted under a key you hold, and its models run on your own machine.
+- **Private by design.** SHM runs on your side, next to your agent. The memories, index and
+  answers it keeps are encrypted under a key you hold. Its bookkeeping (cell ids, feed positions,
+  workstream names, and which memory was derived from which) is kept in owner-only files. Its
+  models run on your own machine.
 - **Erasure that reaches every copy SHM holds.** When a memory is erased in SAIHM, SHM removes it
   from its index, its caches and everything it derived from it.
 - **Picks up where you left off.** SHM can save an encrypted snapshot of its state and
@@ -127,7 +129,7 @@ const saihm = new McpSaihmClient({ endpoint: "saihm", tenantId: "my-agent", call
 
 Before a session opens, SHM confirms with SAIHM that your account holds a paid tier: `PRO`, `PRO_FAST`, `ENTERPRISE` or `ENTERPRISE_FAST`. The session opens as soon as the check passes; any other answer, an error or a timeout keeps it closed, and nothing is locked, written or read until then. The check waits up to 15 seconds by default (`entitlementTimeoutMs`). The first start of the SAIHM MCP server after an install or upgrade can take longer while it downloads, so start it once beforehand or raise the timeout.
 
-SHM takes the tier straight from your account status as SAIHM reports it, never from an environment variable or configuration file. The [licence](#licence) sets the terms of use.
+SHM takes the tier straight from your account status as SAIHM reports it, never from an environment variable or configuration file. The [license](#license) sets the terms of use.
 
 ### What's inside
 
@@ -135,9 +137,9 @@ SHM takes the tier straight from your account status as SAIHM reports it, never 
 - **Proactive context.** `session.proactiveInjector()` assembles the memories relevant to the current task within a budget you set, and records why each one was chosen.
 - **Encryption at rest.** The index and any persisted memory bodies are encrypted with AES-256-GCM under a key you hold.
 - **Your sources.** SHM ranks whatever its read port supplies: a folder of Markdown (`MarkdownDirPort`), your own adapter over another store, or several sources federated together (`FederatedReadPort`). Through `McpSaihmClient` it reads and writes SAIHM cells: recall by query, cells shared with you, and the knowledge SHM derives.
-- **Resident service.** A resident service (`ResidentSession`, `serveHttp`) keeps the index warm, and host hooks (`HostHookAdapter`) bring relevant memories into a coding session.
+- **Resident service.** A resident service (`ResidentSession`, `serveHttp`) keeps the index warm, and host hooks (`HostHookAdapter`) bring relevant memories into a coding session. By default a hook turn adds at most 4 KB (4,096 bytes); a longer memory arrives cut short, followed by the id of the cell that holds all of it. Set `maxBytes: Infinity` in its `turn` or `action` options to bring whole memories instead.
 
-The embedder and the reranker run on your machine. On first use they download their pretrained models from the Hugging Face Hub and cache them.
+The embedder and the reranker run on your machine. On first use they download their pretrained models from the Hugging Face Hub and cache them in `~/.cache/shm/models`, or in `$XDG_CACHE_HOME/shm/models` when that is set, so reinstalling SHM or running `npm ci` does not download them again.
 
 ### SHM and the SAIHM MCP server
 
@@ -153,9 +155,9 @@ SHM builds on [`@saihm/mcp-server-pro`](https://github.com/SAIHM-Admin/saihm-mcp
 
 You can run SHM against your own SAIHM endpoint. SAIHM is not responsible for, and has no comment regarding, endpoints developed and run by others.
 
-## Licence
+## License
 
-SHM is licensed under the [Business Source License 1.1](LICENSE). Production use is granted to holders of a paid SAIHM subscription who use SHM with the SAIHM account that holds it. For any other production use, a commercial licence is available through [GitHub Sponsors](https://github.com/sponsors/SAIHM-Admin). Each version converts to the Apache License, Version 2.0 on its Change Date, stated in LICENSE.
+SHM is licensed under the [Business Source License 1.1](LICENSE). Production use is granted to holders of a paid SAIHM subscription who use SHM with the SAIHM account that holds it. For any other production use, a commercial license is available through [GitHub Sponsors](https://github.com/sponsors/SAIHM-Admin). Each version converts to the Apache License, Version 2.0 on its Change Date, stated in LICENSE.
 
 See [NOTICE](NOTICE) for third-party notices and [CONTRIBUTING.md](CONTRIBUTING.md) for contributions and security reports.
 
